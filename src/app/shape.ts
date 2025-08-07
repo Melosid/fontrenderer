@@ -116,17 +116,5 @@ export const makeStrips = (font: opentype.Font) => {
         }
     }
     console.log('strips: ', strips);
-
-
-    // // Now let's display it on a canvas with id "font"
-    // const ctx = (document.getElementById('font') as HTMLCanvasElement)?.getContext('2d');
-    // if (!ctx) {
-    //     console.log('Canvas not found');
-    //     return;
-    // }
-    // // If you just want to draw the text you can also use font.draw(ctx, text, x, y, fontSize).
-    // path.draw(ctx);
-
     return strips;
-
 }
