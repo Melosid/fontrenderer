@@ -69,34 +69,45 @@ export const drawTriangles = (device: GPUDevice, context: GPUCanvasContext, pres
     new Float32Array(vertexBuffer.getMappedRange()).set(bezierVertices);
     vertexBuffer.unmap(); // Unmap the buffer to make it accessible by the GPU
 
-    // Define the WGSL (WebGPU Shading Language) shaders
-    // Vertex Shader: Processes each vertex, setting its position
-    const vertexShaderWGSL = `
+    const squareVertices = new Float32Array([
+        -0.9, 0.9,
+        0.9, 0.9,
+        0.9, -0.9,
+        -0.9, 0.9,
+        0.9, -0.9,
+        -0.9, -0.9,
+    ]);
+    // Two overlapping triangles
+
+    const squareVertexBuffer = device.createBuffer({
+        size: squareVertices.byteLength,
+        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        mappedAtCreation: true,
+    });
+    new Float32Array(squareVertexBuffer.getMappedRange()).set(squareVertices);
+    squareVertexBuffer.unmap();
+
+    const shaderCode = `
+                // Vertex Shader
                 @vertex
-                fn main(@location(0) position : vec2f) -> @builtin(position) vec4f {
-                    // Output the position directly (it's already in clip space)
-                    return vec4f(position, 0.0, 1.0);
+                fn vs_main(@location(0) pos : vec2<f32>) -> @builtin(position) vec4<f32> {
+                    return vec4<f32>(pos, 0.0, 1.0);
                 }
-            `;
 
-    // Fragment Shader: Determines the color of each pixel
-    const fragmentShaderWGSL = `
+                // Fragment Shader for the triangle (stencil invert) - its color will be discarded
                 @fragment
-                fn main() -> @location(0) vec4f {
-                    // Output a blue color for the curve
-                    return vec4f(0.0, 0.0, 1.0, 1.0); // RGBA (Red, Green, Blue, Alpha)
+                fn fs_triangle() -> @location(0) vec4<f32> {
+                    return vec4<f32>(0.0, 1.0, 0.0, 1.0); // Green
+                }
+
+                // Fragment Shader for the square (the final visible object)
+                @fragment
+                fn fs_square() -> @location(0) vec4<f32> {
+                    return vec4<f32>(1.0, 0.0, 0.0, 1.0); // Red
                 }
             `;
+    const shaderModule = device.createShaderModule({ code: shaderCode });
 
-    // Create a shader module for the vertex shader
-    const vertexShaderModule = device.createShaderModule({
-        code: vertexShaderWGSL,
-    });
-
-    // Create a shader module for the fragment shader
-    const fragmentShaderModule = device.createShaderModule({
-        code: fragmentShaderWGSL,
-    });
 
     // Define the render pipeline layout
     const pipelineLayout = device.createPipelineLayout({
@@ -107,8 +118,8 @@ export const drawTriangles = (device: GPUDevice, context: GPUCanvasContext, pres
     const renderPipeline = device.createRenderPipeline({
         layout: pipelineLayout,
         vertex: {
-            module: vertexShaderModule,
-            entryPoint: 'main', // Entry point function in the vertex shader
+            module: shaderModule,
+            entryPoint: 'vs_main', // Entry point function in the vertex shader
             buffers: [
                 {
                     arrayStride: 2 * 4, // 3 floats * 4 bytes/float = 12 bytes per 
@@ -123,17 +134,75 @@ export const drawTriangles = (device: GPUDevice, context: GPUCanvasContext, pres
             ],
         },
         fragment: {
-            module: fragmentShaderModule,
-            entryPoint: 'main', // Entry point function in the fragment shader
+            module: shaderModule,
+            entryPoint: 'fs_triangle', // Entry point function in the fragment shader
             targets: [
                 {
                     format: presentationFormat, // Match the canvas format
+                    writeMask: 0,
                 },
             ],
+        },
+        depthStencil: {
+            format: 'depth24plus-stencil8',
+            depthWriteEnabled: false,
+            depthCompare: 'always',
+            stencilFront: {
+                compare: 'always',
+                failOp: 'keep',
+                passOp: 'invert', // The key feature: invert the stencil value
+                depthFailOp: 'keep',
+            },
+            stencilBack: {
+                compare: 'always',
+                failOp: 'keep',
+                passOp: 'invert',
+                depthFailOp: 'keep',
+            },
+            stencilWriteMask: 0x01,
+            stencilReadMask: 0,
         },
         // Define the primitive topology as 'line-strip' to draw connected lines
         primitive: {
             topology: 'triangle-list', // Connects all vertices in order
+        },
+    });
+
+    // === 5. Create the second pipeline (for final color drawing) ===
+    const colorDrawPipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+            module: shaderModule,
+            entryPoint: 'vs_main',
+            buffers: [{
+                arrayStride: 2 * 4,
+                attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
+            }],
+        },
+        primitive: { topology: 'triangle-list' },
+        fragment: {
+            module: shaderModule,
+            entryPoint: 'fs_square',
+            targets: [{ format: presentationFormat }],
+        },
+        depthStencil: {
+            format: 'depth24plus-stencil8',
+            depthWriteEnabled: false,
+            depthCompare: 'always',
+            stencilFront: {
+                compare: 'equal', // Only draw where the stencil value is equal to reference
+                failOp: 'keep',
+                passOp: 'keep',
+                depthFailOp: 'keep',
+            },
+            stencilBack: {
+                compare: 'equal',
+                failOp: 'keep',
+                passOp: 'keep',
+                depthFailOp: 'keep',
+            },
+            stencilWriteMask: 0,
+            stencilReadMask: 0xFF,
         },
     });
 
@@ -142,6 +211,12 @@ export const drawTriangles = (device: GPUDevice, context: GPUCanvasContext, pres
 
     // Begin a render pass, specifying the render target (canvas)
     const textureView = context.getCurrentTexture().createView();
+    const depthStencilTexture = device.createTexture({
+        size: [800, 600],
+        format: 'depth24plus-stencil8',
+        usage: GPUTextureUsage.RENDER_ATTACHMENT,
+    });
+    const depthStencilView = depthStencilTexture.createView();
     const renderPassEncoder = commandEncoder.beginRenderPass({
         colorAttachments: [
             {
@@ -151,6 +226,15 @@ export const drawTriangles = (device: GPUDevice, context: GPUCanvasContext, pres
                 storeOp: 'store', // Store the result
             },
         ],
+        depthStencilAttachment: {
+            view: depthStencilView,
+            depthClearValue: 1.0,
+            depthLoadOp: 'clear',
+            depthStoreOp: 'store',
+            stencilClearValue: 1, // Clear stencil buffer to 1
+            stencilLoadOp: 'clear',
+            stencilStoreOp: 'store',
+        },
     });
 
     // Set the render pipeline
@@ -161,6 +245,12 @@ export const drawTriangles = (device: GPUDevice, context: GPUCanvasContext, pres
 
     // Draw the vertices. We draw all generated vertices.
     renderPassEncoder.draw(bezierVertices.length / 2);
+
+    // Second pass: Draw the square, which will be masked by the stencil buffer
+    renderPassEncoder.setPipeline(colorDrawPipeline);
+    renderPassEncoder.setVertexBuffer(0, squareVertexBuffer);
+    renderPassEncoder.setStencilReference(1); // Only draw where the stencil value is 1
+    renderPassEncoder.draw(6); // Draw 6 vertices for the square
 
     // End the render pass
     renderPassEncoder.end();
