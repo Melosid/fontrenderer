@@ -1,9 +1,5 @@
 import opentype from 'opentype.js'
-
-export type Point2D = {
-    x: number;
-    y: number;
-}
+import { Point2D } from './model';
 
 export type Strip = Point2D[];
 

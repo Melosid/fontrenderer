@@ -2,6 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { drawLineStrip, makeStrips } from './line-strip';
 import opentype from 'opentype.js';
+import { drawTriangles, makeTriangles } from './triangle';
 
 @Component({
   selector: 'app-root',
@@ -22,8 +23,10 @@ export class AppComponent implements OnInit {
   async init() {
     const { device, context, presentationFormat } = await this.initWebGPU();
     const font = await this.loadFont();
-    const strips = makeStrips(font);
-    drawLineStrip(device, context, presentationFormat, strips);
+    const triangles = makeTriangles(font);
+    drawTriangles(device, context, presentationFormat, triangles)
+    // const strips = makeStrips(font);
+    // drawLineStrip(device, context, presentationFormat, strips);
   }
 
   loadFont = async (src = 'assets/courier.ttf') => {
