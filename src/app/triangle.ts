@@ -231,7 +231,7 @@ export const drawTriangles = (device: GPUDevice, context: GPUCanvasContext, pres
             depthClearValue: 1.0,
             depthLoadOp: 'clear',
             depthStoreOp: 'store',
-            stencilClearValue: 1, // Clear stencil buffer to 1
+            stencilClearValue: 0, // Clear stencil buffer to 0
             stencilLoadOp: 'clear',
             stencilStoreOp: 'store',
         },
