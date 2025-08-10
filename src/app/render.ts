@@ -296,7 +296,7 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
     // Begin a render pass, specifying the render target (canvas)
     const textureView = context.getCurrentTexture().createView();
     const depthStencilTexture = device.createTexture({
-        size: [800, 600],
+        size: [context.canvas.width, context.canvas.height],
         format: 'depth24plus-stencil8',
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
