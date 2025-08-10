@@ -2,7 +2,6 @@ import { Component, OnInit } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { drawLineStrip, makeStrips } from './line-strip';
 import opentype from 'opentype.js';
-import { drawTriangles, makeTriangles } from './triangle';
 import { draw, findContours } from './render';
 
 @Component({
@@ -26,9 +25,6 @@ export class AppComponent implements OnInit {
     const font = await this.loadFont();
     const contours = findContours(font);
     draw(device, context, presentationFormat, contours);
-    // drawTriangles(device, context, presentationFormat, triangles)
-    // const strips = makeStrips(font);
-    // drawLineStrip(device, context, presentationFormat, strips);
   }
 
   loadFont = async (src = 'assets/courier.ttf') => {
