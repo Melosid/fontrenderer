@@ -6,16 +6,14 @@ export type Point2D = {
     y: number;
 }
 
-/*
-    3 points of Point2D with total of 24 bytes
-*/
-export type Triangle = Point2D[];
-
 /* 
     Glyph contours
 */
 export type Contour = {
-    triangles: Triangle[];
-    curves: Triangle[];
+    // multiple of 3 since each triangle is determined by 3 points
+    triangles: number[];
+    // multiple of 3 since each triangle is determined by 3 points
+    // quadratic curves only
+    curves: number[];
     clockwise: boolean;
 }

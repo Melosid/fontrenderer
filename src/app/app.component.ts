@@ -3,7 +3,7 @@ import { RouterOutlet } from '@angular/router';
 import { drawLineStrip, makeStrips } from './line-strip';
 import opentype from 'opentype.js';
 import { drawTriangles, makeTriangles } from './triangle';
-import { findContours } from './render';
+import { draw, findContours } from './render';
 
 @Component({
   selector: 'app-root',
@@ -24,9 +24,9 @@ export class AppComponent implements OnInit {
   async init() {
     const { device, context, presentationFormat } = await this.initWebGPU();
     const font = await this.loadFont();
-    const triangles = makeTriangles(font);
     const contours = findContours(font);
-    drawTriangles(device, context, presentationFormat, triangles)
+    draw(device, context, presentationFormat, contours);
+    // drawTriangles(device, context, presentationFormat, triangles)
     // const strips = makeStrips(font);
     // drawLineStrip(device, context, presentationFormat, strips);
   }
