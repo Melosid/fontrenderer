@@ -15,7 +15,6 @@ export const findContours = (font: opentype.Font) => {
     console.log('font: ', font);
     console.log('path: ', path);
 
-
     const subPaths = path.commands.reduce((acc: PathCommand[][], command) => {
         if (command.type === 'M') {
             acc.push([]); // Start a new sub-array when the delimiter is encountered
@@ -54,6 +53,9 @@ export const findContours = (font: opentype.Font) => {
 
         let currentContour!: Contour;
         let tail!: Point2D;
+        const barycentricBottomLeft = [1.0, 0.0, 0.0];
+        const barycentricBottomRight = [0.0, 1.0, 0.0];
+        const barycentricTopMiddle = [0.0, 0.0, 1.0];
 
         for (const command of subPath) {
             if (command.type === 'M') {
@@ -66,6 +68,9 @@ export const findContours = (font: opentype.Font) => {
             } else if (command.type === 'L') {
                 const p = { x: command.x / unitsPerEm, y: command.y / unitsPerEm };
                 currentContour.triangles.push(referencePoint.x, referencePoint.y, tail.x, tail.y, p.x, p.y);
+                if (tail.x === p.x && tail.y === p.y) {
+                    continue;
+                }
                 tail = p;
             } else if (command.type === 'C') {
                 const p1 = { x: command.x1 / unitsPerEm, y: command.y1 / unitsPerEm };
@@ -73,13 +78,13 @@ export const findContours = (font: opentype.Font) => {
                 const p12 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
                 const p = { x: command.x / unitsPerEm, y: command.y / unitsPerEm };
                 currentContour.triangles.push(referencePoint.x, referencePoint.y, tail.x, tail.y, p.x, p.y);
-                currentContour.curves.push(tail.x, tail.y, p12.x, p12.y, p.x, p.y);
+                currentContour.curves.push(tail.x, tail.y, ...barycentricBottomLeft, p12.x, p12.y, ...barycentricTopMiddle, p.x, p.y, ...barycentricBottomRight);
                 tail = p;
             } else if (command.type === 'Q') {
                 const p1 = { x: command.x1 / unitsPerEm, y: command.y1 / unitsPerEm };
                 const p = { x: command.x / unitsPerEm, y: command.y / unitsPerEm };
                 currentContour.triangles.push(referencePoint.x, referencePoint.y, tail.x, tail.y, p.x, p.y);
-                currentContour.curves.push(tail.x, tail.y, p1.x, p1.y, p.x, p.y);
+                currentContour.curves.push(tail.x, tail.y, ...barycentricBottomLeft, p1.x, p1.y, ...barycentricTopMiddle, p.x, p.y, ...barycentricBottomRight);
                 tail = p;
             }
         }
@@ -158,46 +163,94 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
     new Float32Array(squareVertexBuffer.getMappedRange()).set(squareVertices);
     squareVertexBuffer.unmap();
 
-
-
     console.log('triangles: ', trianglesBuffer);
     console.log('clockwiseCurves: ', clockwiseCurves);
     console.log('counterClockwiseCurves: ', counterClockwiseCurves);
 
-
     const shaderCode = `
-                // Vertex Shader
-                @vertex
-                fn vs_main(@location(0) pos : vec2<f32>) -> @builtin(position) vec4<f32> {
-                    return vec4<f32>(pos, 0.0, 1.0);
-                }
+        // Vertex Shader for the triangle
+        @vertex
+        fn vs_triangle(@location(0) pos : vec2<f32>) -> @builtin(position) vec4<f32> {
+            return vec4<f32>(pos, 0.0, 1.0);
+        }
 
-                // Fragment Shader for the triangle (stencil invert) - its color will be discarded
-                @fragment
-                fn fs_triangle() -> @location(0) vec4<f32> {
-                    return vec4<f32>(0.0, 1.0, 0.0, 1.0); // Green
-                }
+        // Fragment Shader for the triangle (stencil invert) - its color will be discarded
+        @fragment
+        fn fs_triangle() -> @location(0) vec4<f32> {
+            return vec4<f32>(0.0, 0.0, 0.0, 1.0);
+        }
 
-                // Fragment Shader for the square (the final visible object)
-                @fragment
-                fn fs_square() -> @location(0) vec4<f32> {
-                    return vec4<f32>(1.0, 0.0, 0.0, 1.0); // Red
-                }
-            `;
+        // Fragment Shader for the square (the final visible object)
+        @fragment
+        fn fs_square() -> @location(0) vec4<f32> {
+            return vec4<f32>(1.0, 0.0, 0.0, 1.0); // Red
+        }
+
+        struct VertexOutput {
+            @builtin(position) position : vec4<f32>,
+            @location(0) barycentric : vec3<f32>,
+        };
+
+        // Vertex Shader for the curve
+        @vertex
+        fn vs_curve(@location(0) pos : vec2<f32>, @location(1) barycentric_in : vec3<f32>) -> VertexOutput {
+            var output : VertexOutput;
+            // The position is already in clip space from the vertex buffer
+            output.position = vec4<f32>(pos, 0.0, 1.0);
+            // Pass the barycentric coordinates to the fragment shader for interpolation
+            output.barycentric = barycentric_in;
+            return output;
+        }
+
+        // Fragment Shader for the clockwise curve
+        @fragment
+        fn fs_clockwise_curve(@location(0) barycentric : vec3<f32>, @builtin(front_facing) isFront : bool) -> @location(0) vec4<f32> {
+            // Unpack barycentric coordinates
+            let u = barycentric.x;
+            let v = barycentric.y;
+            let w = barycentric.z;
+
+            let clear_color = vec4<f32>(0.9, 0.95, 1.0, 1.0); // clear color
+            let fill_color = vec4<f32>(1.0, 0.0, 0.0, 1.0); // fill color
+
+            if (w/2 + v)*(w/2 + v) < v {
+                return fill_color;
+            } else {
+                return clear_color;
+            };
+        }
+
+        // Fragment Shader for the clockwise curve
+        @fragment
+        fn fs_counter_clockwise_curve(@location(0) barycentric : vec3<f32>, @builtin(front_facing) isFront : bool) -> @location(0) vec4<f32> {
+            // Unpack barycentric coordinates
+            let u = barycentric.x;
+            let v = barycentric.y;
+            let w = barycentric.z;
+
+            let clear_color = vec4<f32>(0.9, 0.95, 1.0, 1.0); // clear color
+            let fill_color = vec4<f32>(1.0, 0.0, 0.0, 1.0); // fill color
+
+            if (w/2 + v)*(w/2 + v) < v {
+                return clear_color;
+            } else {
+                return fill_color;
+            };
+        }
+        `;
     const shaderModule = device.createShaderModule({ code: shaderCode });
 
 
     // Define the render pipeline layout
-    const pipelineLayout = device.createPipelineLayout({
-        bindGroupLayouts: [], // No bind groups needed for this simple example
-    });
+    // const pipelineLayout = device.createPipelineLayout({
+    //     bindGroupLayouts: [], // No bind groups needed for this simple example
+    // });
 
-    // Create the render pipeline
-    const renderPipeline = device.createRenderPipeline({
-        layout: pipelineLayout,
+    const trianglesStencilInvertPipeline = device.createRenderPipeline({
+        layout: 'auto',
         vertex: {
             module: shaderModule,
-            entryPoint: 'vs_main', // Entry point function in the vertex shader
+            entryPoint: 'vs_triangle', // Entry point function in the vertex shader
             buffers: [
                 {
                     arrayStride: 2 * 4, // 3 floats * 4 bytes/float = 12 bytes per 
@@ -228,7 +281,7 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
             stencilFront: {
                 compare: 'always',
                 failOp: 'keep',
-                passOp: 'invert', // The key feature: invert the stencil value
+                passOp: 'invert',
                 depthFailOp: 'keep',
             },
             stencilBack: {
@@ -246,12 +299,79 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
         },
     });
 
-    // === 5. Create the second pipeline (for final color drawing) ===
-    const colorDrawPipeline = device.createRenderPipeline({
+    const clockwiseCurvesPipeline = device.createRenderPipeline({
         layout: 'auto',
         vertex: {
             module: shaderModule,
-            entryPoint: 'vs_main',
+            entryPoint: 'vs_curve',
+            buffers: [
+                {
+                    attributes: [
+                        { shaderLocation: 0, offset: 0, format: 'float32x2' }, // position
+                        { shaderLocation: 1, offset: 8, format: 'float32x3' }, // barycentric coordinates
+                    ],
+                    arrayStride: 5 * Float32Array.BYTES_PER_ELEMENT,
+                }
+            ],
+        },
+        fragment: {
+            module: shaderModule,
+            entryPoint: 'fs_clockwise_curve',
+            targets: [{ format: presentationFormat }],
+        },
+        primitive: {
+            topology: 'triangle-list',
+        },
+        depthStencil: {
+            depthWriteEnabled: true,
+            depthCompare: 'less',
+            format: 'depth24plus-stencil8',
+            // The stencil state is intentionally omitted.
+            // The pipeline will still operate within the pass's stencil attachment,
+            // but it won't perform any stencil tests or writes.
+            // To be explicit, you could set stencilFront/stencilBack to `undefined`.
+        },
+    });
+
+    const counterClockwiseCurvesPipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+            module: shaderModule,
+            entryPoint: 'vs_curve',
+            buffers: [
+                {
+                    attributes: [
+                        { shaderLocation: 0, offset: 0, format: 'float32x2' }, // position
+                        { shaderLocation: 1, offset: 8, format: 'float32x3' }, // barycentric coordinates
+                    ],
+                    arrayStride: 5 * Float32Array.BYTES_PER_ELEMENT,
+                }
+            ],
+        },
+        fragment: {
+            module: shaderModule,
+            entryPoint: 'fs_counter_clockwise_curve',
+            targets: [{ format: presentationFormat }],
+        },
+        primitive: {
+            topology: 'triangle-list',
+        },
+        depthStencil: {
+            depthWriteEnabled: true,
+            depthCompare: 'less',
+            format: 'depth24plus-stencil8',
+            // The stencil state is intentionally omitted.
+            // The pipeline will still operate within the pass's stencil attachment,
+            // but it won't perform any stencil tests or writes.
+            // To be explicit, you could set stencilFront/stencilBack to `undefined`.
+        },
+    });
+
+    const trianglesStencilDrawPipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+            module: shaderModule,
+            entryPoint: 'vs_triangle',
             buffers: [{
                 arrayStride: 2 * 4,
                 attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
@@ -268,7 +388,7 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
             depthWriteEnabled: false,
             depthCompare: 'always',
             stencilFront: {
-                compare: 'equal', // Only draw where the stencil value is equal to reference
+                compare: 'equal',
                 failOp: 'keep',
                 passOp: 'keep',
                 depthFailOp: 'keep',
@@ -321,18 +441,30 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
         },
     });
 
-    // First pass: Draw the triangles
-    renderPassEncoder.setPipeline(renderPipeline);
-    // Set the vertex buffer at slot 0 (corresponds to index 0 in `buffers` array above)
+    // Draw the triangles
+    renderPassEncoder.setPipeline(trianglesStencilInvertPipeline);
     renderPassEncoder.setVertexBuffer(0, trianglesBuffer);
-    // Draw the vertices. We draw all generated vertices.
     renderPassEncoder.draw(trianglesF32.length / 2);
 
-    // Second pass: Draw the square, which will be masked by the stencil buffer
-    renderPassEncoder.setPipeline(colorDrawPipeline);
+    // Draw the square, which will be masked by the stencil buffer
+    renderPassEncoder.setPipeline(trianglesStencilDrawPipeline);
     renderPassEncoder.setVertexBuffer(0, squareVertexBuffer);
     renderPassEncoder.setStencilReference(1); // Only draw where the stencil value is 1
     renderPassEncoder.draw(6); // Draw 6 vertices for the square
+
+    // Draw the clockwise curves
+    renderPassEncoder.setPipeline(clockwiseCurvesPipeline);
+    renderPassEncoder.setVertexBuffer(0, clockwiseCurvesBuffer);
+    renderPassEncoder.setStencilReference(0);
+    renderPassEncoder.draw(clockwiseCurvesF32.length / 5);
+
+
+    // Draw the counterclockwise curves
+    renderPassEncoder.setPipeline(counterClockwiseCurvesPipeline);
+    renderPassEncoder.setVertexBuffer(0, counterClockwiseCurvesBuffer);
+    renderPassEncoder.setStencilReference(0);
+    renderPassEncoder.draw(counterClockwiseCurvesF32.length / 5);
+
 
     // End the render pass
     renderPassEncoder.end();

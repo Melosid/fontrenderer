@@ -1,6 +1,5 @@
 import { Component, OnInit } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
-import { drawLineStrip, makeStrips } from './line-strip';
 import opentype from 'opentype.js';
 import { draw, findContours } from './render';
 
