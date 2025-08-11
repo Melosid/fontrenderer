@@ -5,17 +5,51 @@
     4. Render curves (no need for stencil testing)
 */
 
-import { PathCommand } from "opentype.js";
+import { Path, PathCommand } from "opentype.js";
 import { Contour, Point2D } from "./model";
 
 
 export const findContours = (font: opentype.Font) => {
-    const contours: Contour[] = [];
-    const path = font.glyphs.get(72).path;
-    console.log('font: ', font);
-    console.log('path: ', path);
+    // Get the original path
+    const message = "Hello, World!";
+    const fontSize = 16;
+    const originalPath = font.getPath(message, 0, 0, fontSize);
 
-    const subPaths = path.commands.reduce((acc: PathCommand[][], command) => {
+    // Get the bounding box to find the minimum x and maximun x coordinates
+    const { x1, x2 } = originalPath.getBoundingBox();
+    const shiftX = (x2 - x1) / 2;
+
+    // Create a new, normalized path
+    const normalizedPath = new Path();
+
+    // Iterate through the commands and shift all x coordinates and invert y coordinates
+    originalPath.commands.forEach(command => {
+        const normalizedCommand = { ...command } as any; // Create a shallow copy
+
+        // Invert y and shift x to the center
+        if (normalizedCommand.x !== undefined) {
+            normalizedCommand.x -= shiftX;
+        }
+        if (normalizedCommand.y !== undefined) {
+            normalizedCommand.y *= -1;
+        }
+        if (normalizedCommand.x1 !== undefined) {
+            normalizedCommand.x1 -= shiftX;
+        }
+        if (normalizedCommand.y1 !== undefined) {
+            normalizedCommand.y1 *= -1;
+        }
+        if (normalizedCommand.x2 !== undefined) {
+            normalizedCommand.x2 -= shiftX;
+        }
+        if (normalizedCommand.y2 !== undefined) {
+            normalizedCommand.y2 *= -1;
+        }
+
+        normalizedPath.commands.push(normalizedCommand);
+    });
+
+    const subPaths = normalizedPath.commands.reduce((acc: PathCommand[][], command) => {
         if (command.type === 'M') {
             acc.push([]); // Start a new sub-array when the delimiter is encountered
         }
@@ -23,12 +57,12 @@ export const findContours = (font: opentype.Font) => {
         return acc;
     }, [])
 
-    console.log('subPaths: ', subPaths);
-    const referencePoint = { x: -0.5, y: 0.5 };
-    const unitsPerEm = 2048;
+    const referencePoint = { x: -1, y: 1 };
+    const ratio = 75;
     const barycentricBottomLeft = [1.0, 0.0, 0.0];
     const barycentricBottomRight = [0.0, 1.0, 0.0];
     const barycentricTopMiddle = [0.0, 0.0, 1.0];
+    const contours: Contour[] = [];
 
     for (const subPath of subPaths) {
         let currentContour!: Contour;
@@ -36,29 +70,29 @@ export const findContours = (font: opentype.Font) => {
 
         for (const command of subPath) {
             if (command.type === 'M') {
-                tail = { x: command.x / unitsPerEm, y: command.y / unitsPerEm };
+                tail = { x: command.x / ratio, y: command.y / ratio };
                 currentContour = {
                     triangles: [],
                     curves: [],
                 }
             } else if (command.type === 'L') {
-                const p = { x: command.x / unitsPerEm, y: command.y / unitsPerEm };
+                const p = { x: command.x / ratio, y: command.y / ratio };
                 currentContour.triangles.push(referencePoint.x, referencePoint.y, tail.x, tail.y, p.x, p.y);
                 if (tail.x === p.x && tail.y === p.y) {
                     continue;
                 }
                 tail = p;
             } else if (command.type === 'C') {
-                const p1 = { x: command.x1 / unitsPerEm, y: command.y1 / unitsPerEm };
-                const p2 = { x: command.x2 / unitsPerEm, y: command.y2 / unitsPerEm };
+                const p1 = { x: command.x1 / ratio, y: command.y1 / ratio };
+                const p2 = { x: command.x2 / ratio, y: command.y2 / ratio };
                 const p12 = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
-                const p = { x: command.x / unitsPerEm, y: command.y / unitsPerEm };
+                const p = { x: command.x / ratio, y: command.y / ratio };
                 currentContour.triangles.push(referencePoint.x, referencePoint.y, tail.x, tail.y, p.x, p.y);
                 currentContour.curves.push(tail.x, tail.y, ...barycentricBottomLeft, p12.x, p12.y, ...barycentricTopMiddle, p.x, p.y, ...barycentricBottomRight);
                 tail = p;
             } else if (command.type === 'Q') {
-                const p1 = { x: command.x1 / unitsPerEm, y: command.y1 / unitsPerEm };
-                const p = { x: command.x / unitsPerEm, y: command.y / unitsPerEm };
+                const p1 = { x: command.x1 / ratio, y: command.y1 / ratio };
+                const p = { x: command.x / ratio, y: command.y / ratio };
                 currentContour.triangles.push(referencePoint.x, referencePoint.y, tail.x, tail.y, p.x, p.y);
                 currentContour.curves.push(tail.x, tail.y, ...barycentricBottomLeft, p1.x, p1.y, ...barycentricTopMiddle, p.x, p.y, ...barycentricBottomRight);
                 tail = p;
@@ -67,7 +101,6 @@ export const findContours = (font: opentype.Font) => {
 
         contours.push(currentContour)
     }
-    console.log('contours: ', contours);
     return contours;
 }
 
@@ -124,9 +157,6 @@ export const draw = (
     });
     new Float32Array(squareVertexBuffer.getMappedRange()).set(squareVertices);
     squareVertexBuffer.unmap();
-
-    console.log('triangles: ', trianglesBuffer);
-    console.log('curves: ', curvesBuffer);
 
     const shaderCode = `
         // Vertex Shader for the triangle

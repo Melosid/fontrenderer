@@ -80,9 +80,7 @@ const generateCubicBezierCurveVertices = (p0: Point2D, p1: Point2D, p2: Point2D,
 
 export const makeStrips = (font: opentype.Font) => {
     const strips: Strip[] = [];
-    console.log('font: ', font);
     const path = font.glyphs.get(72).path;
-    console.log('path: ', path);
     const unitsPerEm = 2048;
     let currentStrip: Strip = [];
     for (const command of path.commands) {
@@ -106,7 +104,6 @@ export const makeStrips = (font: opentype.Font) => {
             strips.push(currentStrip);
         }
     }
-    console.log('strips: ', strips);
     return strips;
 }
 
