@@ -26,13 +26,13 @@ export const findContours = (font: opentype.Font) => {
     console.log('subPaths: ', subPaths);
     const referencePoint = { x: -0.5, y: 0.5 };
     const unitsPerEm = 2048;
+    const barycentricBottomLeft = [1.0, 0.0, 0.0];
+    const barycentricBottomRight = [0.0, 1.0, 0.0];
+    const barycentricTopMiddle = [0.0, 0.0, 1.0];
 
     for (const subPath of subPaths) {
         let currentContour!: Contour;
         let tail!: Point2D;
-        const barycentricBottomLeft = [1.0, 0.0, 0.0];
-        const barycentricBottomRight = [0.0, 1.0, 0.0];
-        const barycentricTopMiddle = [0.0, 0.0, 1.0];
 
         for (const command of subPath) {
             if (command.type === 'M') {
@@ -186,12 +186,6 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
         `;
     const shaderModule = device.createShaderModule({ code: shaderCode });
 
-
-    // Define the render pipeline layout
-    // const pipelineLayout = device.createPipelineLayout({
-    //     bindGroupLayouts: [], // No bind groups needed for this simple example
-    // });
-
     const trianglesStencilInvertPipeline = device.createRenderPipeline({
         layout: 'auto',
         vertex: {
@@ -199,7 +193,7 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
             entryPoint: 'vs_triangle', // Entry point function in the vertex shader
             buffers: [
                 {
-                    arrayStride: 2 * 4, // 3 floats * 4 bytes/float = 12 bytes per 
+                    arrayStride: 2 * Float32Array.BYTES_PER_ELEMENT,
                     attributes: [
                         {
                             shaderLocation: 0, // Corresponds to @location(0) in the shader
@@ -251,7 +245,7 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
             module: shaderModule,
             entryPoint: 'vs_triangle',
             buffers: [{
-                arrayStride: 2 * 4,
+                arrayStride: 2 * Float32Array.BYTES_PER_ELEMENT,
                 attributes: [{ shaderLocation: 0, offset: 0, format: 'float32x2' }],
             }],
         },
@@ -306,7 +300,7 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
             topology: 'triangle-list',
         },
         depthStencil: {
-            depthWriteEnabled: true,
+            depthWriteEnabled: false,
             depthCompare: 'less',
             format: 'depth24plus-stencil8',
             // The stencil state is intentionally omitted.
