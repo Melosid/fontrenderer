@@ -104,12 +104,12 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
     curvesBuffer.unmap(); // Unmap the buffer to make it accessible by the GPU
 
     const squareVertices = new Float32Array([
-        -0.9, 0.9,
-        0.9, 0.9,
-        0.9, -0.9,
-        -0.9, 0.9,
-        0.9, -0.9,
-        -0.9, -0.9,
+        -1.0, 1.0,
+        1.0, 1.0,
+        1.0, -1.0,
+        -1.0, 1.0,
+        1.0, -1.0,
+        -1.0, -1.0,
     ]);
 
     const squareVertexBuffer = device.createBuffer({
