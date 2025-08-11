@@ -6,8 +6,18 @@
 */
 
 import { Path, PathCommand } from "opentype.js";
-import { Contour, Point2D } from "./model";
 
+export type Point2D = {
+    x: number;
+    y: number;
+}
+
+export type Contour = {
+    // multiple of 3 since each triangle is determined by 3 points
+    triangles: number[];
+    // multiple of 3 since each quadratic curve is determined by 3 points
+    curves: number[];
+}
 
 export const findContours = (font: opentype.Font) => {
     // Get the original path
