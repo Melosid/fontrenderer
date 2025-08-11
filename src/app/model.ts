@@ -15,5 +15,4 @@ export type Contour = {
     // multiple of 3 since each triangle is determined by 3 points
     // quadratic curves only
     curves: number[];
-    clockwise: boolean;
 }

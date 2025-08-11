@@ -28,29 +28,6 @@ export const findContours = (font: opentype.Font) => {
     const unitsPerEm = 2048;
 
     for (const subPath of subPaths) {
-        // find three points that are not in line and use the crossProduct formula to find the orientation
-        const beginning: Point2D[] = []
-        for (const command of subPath) {
-            if (beginning.length >= 3) {
-                break;
-            }
-            if (command.type === 'Z') {
-                continue;
-            }
-            if (beginning.find(c => (c.x === command.x && c.y === command.y))) {
-                continue;
-            }
-            beginning.push({ x: command.x, y: command.y });
-        }
-
-        console.log('beginning: ', beginning);
-        const { x: x0, y: y0 } = beginning[0];
-        const { x: x1, y: y1 } = beginning[1];
-        const { x: x2, y: y2 } = beginning[2];
-        const crossProduct = ((x1 - x0) * (y2 - y0)) - ((y1 - y0) * (x2 - x0));
-        const clockwise = crossProduct < 0;
-        console.log('crossProduct: ', crossProduct);
-
         let currentContour!: Contour;
         let tail!: Point2D;
         const barycentricBottomLeft = [1.0, 0.0, 0.0];
@@ -63,7 +40,6 @@ export const findContours = (font: opentype.Font) => {
                 currentContour = {
                     triangles: [],
                     curves: [],
-                    clockwise,
                 }
             } else if (command.type === 'L') {
                 const p = { x: command.x / unitsPerEm, y: command.y / unitsPerEm };
@@ -112,39 +88,20 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
     new Float32Array(trianglesBuffer.getMappedRange()).set(trianglesF32);
     trianglesBuffer.unmap(); // Unmap the buffer to make it accessible by the GPU
 
-    const clockwiseCurves = contours.reduce((acc: number[], contour) => {
-        if (contour.clockwise) {
-            acc.push(...contour.curves);
-        }
+    const curves = contours.reduce((acc: number[], contour) => {
+        acc.push(...contour.curves);
         return acc;
     }, [])
-    const clockwiseCurvesF32 = new Float32Array(clockwiseCurves);
+    const curvesF32 = new Float32Array(curves);
     // Create a GPU buffer to store the vertex data
-    const clockwiseCurvesBuffer = device.createBuffer({
-        size: clockwiseCurvesF32.byteLength, // Size in bytes
+    const curvesBuffer = device.createBuffer({
+        size: curvesF32.byteLength, // Size in bytes
         usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, // Mark as vertex buffer and allow copying data to it
         mappedAtCreation: true, // Map the buffer memory for immediate writing
     });
     // Write the vertex data to the buffer
-    new Float32Array(clockwiseCurvesBuffer.getMappedRange()).set(clockwiseCurvesF32);
-    clockwiseCurvesBuffer.unmap(); // Unmap the buffer to make it accessible by the GPU
-
-    const counterClockwiseCurves = contours.reduce((acc: number[], contour) => {
-        if (!contour.clockwise) {
-            acc.push(...contour.curves);
-        }
-        return acc;
-    }, [])
-    const counterClockwiseCurvesF32 = new Float32Array(counterClockwiseCurves);
-    // Create a GPU buffer to store the vertex data
-    const counterClockwiseCurvesBuffer = device.createBuffer({
-        size: counterClockwiseCurvesF32.byteLength, // Size in bytes
-        usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST, // Mark as vertex buffer and allow copying data to it
-        mappedAtCreation: true, // Map the buffer memory for immediate writing
-    });
-    // Write the vertex data to the buffer
-    new Float32Array(counterClockwiseCurvesBuffer.getMappedRange()).set(counterClockwiseCurvesF32);
-    counterClockwiseCurvesBuffer.unmap(); // Unmap the buffer to make it accessible by the GPU
+    new Float32Array(curvesBuffer.getMappedRange()).set(curvesF32);
+    curvesBuffer.unmap(); // Unmap the buffer to make it accessible by the GPU
 
     const squareVertices = new Float32Array([
         -0.9, 0.9,
@@ -164,8 +121,7 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
     squareVertexBuffer.unmap();
 
     console.log('triangles: ', trianglesBuffer);
-    console.log('clockwiseCurves: ', clockwiseCurves);
-    console.log('counterClockwiseCurves: ', counterClockwiseCurves);
+    console.log('curves: ', curvesBuffer);
 
     const shaderCode = `
         // Vertex Shader for the triangle
@@ -202,9 +158,9 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
             return output;
         }
 
-        // Fragment Shader for the clockwise curve
+        // Fragment Shader for the curve
         @fragment
-        fn fs_clockwise_curve(@location(0) barycentric : vec3<f32>, @builtin(front_facing) isFront : bool) -> @location(0) vec4<f32> {
+        fn fs_curve(@location(0) barycentric : vec3<f32>, @builtin(front_facing) isFront : bool) -> @location(0) vec4<f32> {
             // Unpack barycentric coordinates
             let u = barycentric.x;
             let v = barycentric.y;
@@ -214,27 +170,17 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
             let fill_color = vec4<f32>(1.0, 0.0, 0.0, 1.0); // fill color
 
             if (w/2 + v)*(w/2 + v) < v {
-                return fill_color;
+                if isFront {
+                    return clear_color;
+                } else {
+                    return fill_color;
+                }
             } else {
-                return clear_color;
-            };
-        }
-
-        // Fragment Shader for the clockwise curve
-        @fragment
-        fn fs_counter_clockwise_curve(@location(0) barycentric : vec3<f32>, @builtin(front_facing) isFront : bool) -> @location(0) vec4<f32> {
-            // Unpack barycentric coordinates
-            let u = barycentric.x;
-            let v = barycentric.y;
-            let w = barycentric.z;
-
-            let clear_color = vec4<f32>(0.9, 0.95, 1.0, 1.0); // clear color
-            let fill_color = vec4<f32>(1.0, 0.0, 0.0, 1.0); // fill color
-
-            if (w/2 + v)*(w/2 + v) < v {
-                return clear_color;
-            } else {
-                return fill_color;
+                if isFront {
+                    return fill_color;
+                } else {
+                    return clear_color;
+                }
             };
         }
         `;
@@ -299,74 +245,6 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
         },
     });
 
-    const clockwiseCurvesPipeline = device.createRenderPipeline({
-        layout: 'auto',
-        vertex: {
-            module: shaderModule,
-            entryPoint: 'vs_curve',
-            buffers: [
-                {
-                    attributes: [
-                        { shaderLocation: 0, offset: 0, format: 'float32x2' }, // position
-                        { shaderLocation: 1, offset: 8, format: 'float32x3' }, // barycentric coordinates
-                    ],
-                    arrayStride: 5 * Float32Array.BYTES_PER_ELEMENT,
-                }
-            ],
-        },
-        fragment: {
-            module: shaderModule,
-            entryPoint: 'fs_clockwise_curve',
-            targets: [{ format: presentationFormat }],
-        },
-        primitive: {
-            topology: 'triangle-list',
-        },
-        depthStencil: {
-            depthWriteEnabled: true,
-            depthCompare: 'less',
-            format: 'depth24plus-stencil8',
-            // The stencil state is intentionally omitted.
-            // The pipeline will still operate within the pass's stencil attachment,
-            // but it won't perform any stencil tests or writes.
-            // To be explicit, you could set stencilFront/stencilBack to `undefined`.
-        },
-    });
-
-    const counterClockwiseCurvesPipeline = device.createRenderPipeline({
-        layout: 'auto',
-        vertex: {
-            module: shaderModule,
-            entryPoint: 'vs_curve',
-            buffers: [
-                {
-                    attributes: [
-                        { shaderLocation: 0, offset: 0, format: 'float32x2' }, // position
-                        { shaderLocation: 1, offset: 8, format: 'float32x3' }, // barycentric coordinates
-                    ],
-                    arrayStride: 5 * Float32Array.BYTES_PER_ELEMENT,
-                }
-            ],
-        },
-        fragment: {
-            module: shaderModule,
-            entryPoint: 'fs_counter_clockwise_curve',
-            targets: [{ format: presentationFormat }],
-        },
-        primitive: {
-            topology: 'triangle-list',
-        },
-        depthStencil: {
-            depthWriteEnabled: true,
-            depthCompare: 'less',
-            format: 'depth24plus-stencil8',
-            // The stencil state is intentionally omitted.
-            // The pipeline will still operate within the pass's stencil attachment,
-            // but it won't perform any stencil tests or writes.
-            // To be explicit, you could set stencilFront/stencilBack to `undefined`.
-        },
-    });
-
     const trianglesStencilDrawPipeline = device.createRenderPipeline({
         layout: 'auto',
         vertex: {
@@ -401,6 +279,40 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
             },
             stencilWriteMask: 0,
             stencilReadMask: 0xFF,
+        },
+    });
+
+    const curvesPipeline = device.createRenderPipeline({
+        layout: 'auto',
+        vertex: {
+            module: shaderModule,
+            entryPoint: 'vs_curve',
+            buffers: [
+                {
+                    attributes: [
+                        { shaderLocation: 0, offset: 0, format: 'float32x2' }, // position
+                        { shaderLocation: 1, offset: 8, format: 'float32x3' }, // barycentric coordinates
+                    ],
+                    arrayStride: 5 * Float32Array.BYTES_PER_ELEMENT,
+                }
+            ],
+        },
+        fragment: {
+            module: shaderModule,
+            entryPoint: 'fs_curve',
+            targets: [{ format: presentationFormat }],
+        },
+        primitive: {
+            topology: 'triangle-list',
+        },
+        depthStencil: {
+            depthWriteEnabled: true,
+            depthCompare: 'less',
+            format: 'depth24plus-stencil8',
+            // The stencil state is intentionally omitted.
+            // The pipeline will still operate within the pass's stencil attachment,
+            // but it won't perform any stencil tests or writes.
+            // To be explicit, you could set stencilFront/stencilBack to `undefined`.
         },
     });
 
@@ -452,19 +364,11 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
     renderPassEncoder.setStencilReference(1); // Only draw where the stencil value is 1
     renderPassEncoder.draw(6); // Draw 6 vertices for the square
 
-    // Draw the clockwise curves
-    renderPassEncoder.setPipeline(clockwiseCurvesPipeline);
-    renderPassEncoder.setVertexBuffer(0, clockwiseCurvesBuffer);
+    // Draw the curves
+    renderPassEncoder.setPipeline(curvesPipeline);
+    renderPassEncoder.setVertexBuffer(0, curvesBuffer);
     renderPassEncoder.setStencilReference(0);
-    renderPassEncoder.draw(clockwiseCurvesF32.length / 5);
-
-
-    // Draw the counterclockwise curves
-    renderPassEncoder.setPipeline(counterClockwiseCurvesPipeline);
-    renderPassEncoder.setVertexBuffer(0, counterClockwiseCurvesBuffer);
-    renderPassEncoder.setStencilReference(0);
-    renderPassEncoder.draw(counterClockwiseCurvesF32.length / 5);
-
+    renderPassEncoder.draw(curvesF32.length / 5);
 
     // End the render pass
     renderPassEncoder.end();
