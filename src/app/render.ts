@@ -1,8 +1,8 @@
 /*
-    1. Find contours and their direction
+    1. Find contours
     2. Set regular triangles and curves in contours
-    2. Render regular triangles
-    2. Use stencil buffer to tell between fill and no fill zones 
+    3. Render regular triangles using stencil testing since some triangles overlap
+    4. Render curves (no need for stencil testing)
 */
 
 import { PathCommand } from "opentype.js";
