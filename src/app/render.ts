@@ -72,7 +72,12 @@ export const findContours = (font: opentype.Font) => {
 }
 
 
-export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationFormat: GPUTextureFormat, contours: Contour[]) => {
+export const draw = (
+    device: GPUDevice,
+    context: GPUCanvasContext,
+    presentationFormat: GPUTextureFormat,
+    antiAliasing: boolean,
+    contours: Contour[]) => {
     const triangles = contours.reduce((acc: number[], contour) => {
         acc.push(...contour.triangles);
         return acc;
@@ -214,6 +219,9 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
                 },
             ],
         },
+        multisample: antiAliasing ? {
+            count: 4,
+        } : undefined,
         depthStencil: {
             format: 'depth24plus-stencil8',
             depthWriteEnabled: false,
@@ -255,6 +263,9 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
             entryPoint: 'fs_square',
             targets: [{ format: presentationFormat }],
         },
+        multisample: antiAliasing ? {
+            count: 4,
+        } : undefined,
         depthStencil: {
             format: 'depth24plus-stencil8',
             depthWriteEnabled: false,
@@ -299,6 +310,9 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
         primitive: {
             topology: 'triangle-list',
         },
+        multisample: antiAliasing ? {
+            count: 4,
+        } : undefined,
         depthStencil: {
             depthWriteEnabled: false,
             depthCompare: 'less',
@@ -319,22 +333,41 @@ export const draw = (device: GPUDevice, context: GPUCanvasContext, presentationF
         alphaMode: 'opaque', // Opaque background
     });
 
-    // Begin a render pass, specifying the render target (canvas)
-    const textureView = context.getCurrentTexture().createView();
     const depthStencilTexture = device.createTexture({
         size: [context.canvas.width, context.canvas.height],
+        sampleCount: antiAliasing ? 4 : 1,
         format: 'depth24plus-stencil8',
         usage: GPUTextureUsage.RENDER_ATTACHMENT,
     });
     const depthStencilView = depthStencilTexture.createView();
+
+    let colorAttachment: GPURenderPassColorAttachment = {
+        view: context.getCurrentTexture().createView(),
+        clearValue: { r: 0.9, g: 0.95, b: 1.0, a: 1.0 },
+        loadOp: 'clear', // Clear the texture before drawing
+        storeOp: 'store', // Store the result
+    };
+
+    if (antiAliasing) {
+        // Setup for MSAA
+        const msaaTexture = device.createTexture({
+            size: [context.canvas.width, context.canvas.height],
+            sampleCount: 4,
+            format: presentationFormat,
+            usage: GPUTextureUsage.RENDER_ATTACHMENT,
+        })
+        colorAttachment = {
+            view: msaaTexture.createView(), // Render to the multisampled texture
+            resolveTarget: context.getCurrentTexture().createView(), // Resolve to the canvas
+            clearValue: { r: 0.9, g: 0.95, b: 1.0, a: 1.0 },
+            loadOp: 'clear',
+            storeOp: 'discard', // Discard the multisample texture after resolving
+        }
+    }
+
     const renderPassEncoder = commandEncoder.beginRenderPass({
         colorAttachments: [
-            {
-                view: textureView,
-                clearValue: { r: 0.9, g: 0.95, b: 1.0, a: 1.0 }, // Clear color (light blue)
-                loadOp: 'clear', // Clear the texture before drawing
-                storeOp: 'store', // Store the result
-            },
+            colorAttachment,
         ],
         depthStencilAttachment: {
             view: depthStencilView,

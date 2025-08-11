@@ -23,7 +23,8 @@ export class AppComponent implements OnInit {
     const { device, context, presentationFormat } = await this.initWebGPU();
     const font = await this.loadFont();
     const contours = findContours(font);
-    draw(device, context, presentationFormat, contours);
+    const antiAliasing = true;
+    draw(device, context, presentationFormat, antiAliasing, contours);
   }
 
   loadFont = async (src = 'assets/courier.ttf') => {
