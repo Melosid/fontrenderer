@@ -169,6 +169,8 @@ export const draw = (
     squareVertexBuffer.unmap();
 
     const shaderCode = `
+        // Shader code for the triangles
+        
         // Vertex Shader for the triangle
         @vertex
         fn vs_triangle(@location(0) pos : vec2<f32>) -> @builtin(position) vec4<f32> {
@@ -186,6 +188,8 @@ export const draw = (
         fn fs_square() -> @location(0) vec4<f32> {
             return vec4<f32>(1.0, 0.0, 0.0, 1.0); // Red
         }
+
+        // Shader code for the curves
 
         struct VertexOutput {
             @builtin(position) position : vec4<f32>,

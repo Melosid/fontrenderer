@@ -1,27 +1,27 @@
-# FontRendererApp
+# Rendering TrueType fonts using WebGPU
 
-This project was generated with [Angular CLI](https://github.com/angular/angular-cli) version 17.3.17.
+## Glossary
 
-## Development server
+### TrueType fonts
 
-Run `ng serve` for a dev server. Navigate to `http://localhost:4200/`. The application will automatically reload if you change any of the source files.
+Unlike bitmap fonts, which store each character as a rigid pixel grid, TrueType fonts are scalable. This means they use mathematical descriptions to define the shape of each character, or glyph. The outlines of these glyphs are composed of a series of straight lines and quadratic Bézier curves.
 
-## Code scaffolding
+### WebGPU
 
-Run `ng generate component component-name` to generate a new component. You can also use `ng generate directive|pipe|service|class|guard|interface|enum|module`.
+WebGPU is a modern web API that gives web applications access to a computer's Graphics Processing Unit (GPU). WebGPU uses the HTML \<canvas\> element as its rendering target, similar to WebGL.
 
-## Build
+### Opentype.js
 
-Run `ng build` to build the project. The build artifacts will be stored in the `dist/` directory.
+OpenType.js is a JavaScript library for parsing and manipulating font files. It allows you to load font files, read their properties, and perform operations on them directly in the browser or on a server-side environment like Node.js. It's a powerful tool for web developers who want to work with fonts programmatically.
 
-## Running unit tests
+## Steps
+- Load the font data using opentype.js and get the vector path data for a charater or text using font.getPath(). 
+    - The Path object returned contains an array of commands that define the shape of the text. We iterate over this array and build a list of contours which we will then render on the \<canvas\>.
+     - Each contour is an object that contains a triangles array and a curves array. Each triangle is defined by 3 points and each curve is defined by 2 points and 1 control point.
 
-Run `ng test` to execute the unit tests via [Karma](https://karma-runner.github.io).
+- Render the triangles and curves of each contour in a three pipeline process.
+    - First pipeline draws the pixels of each triangle in a per-pixel integer buffer - the stencil buffer. Each time the same pixel is re-drawn the integer value for that pixels inverts i.e 0 to 1 and vice-verca. This helps us to differentiate between fill zones and non-fill zones of a character.
+    - Second pipeline draws over the pixels of each triangle where the integer value for that pixel is 1 thus making the rough shape of the character appear on the canvas.
+    - Third pipeline draws the curves directly (no stencil testing since the curves don't overlap) to smoothen the character.
 
-## Running end-to-end tests
-
-Run `ng e2e` to execute the end-to-end tests via a platform of your choice. To use this command, you need to first add a package that implements end-to-end testing capabilities.
-
-## Further help
-
-To get more help on the Angular CLI use `ng help` or go check out the [Angular CLI Overview and Command Reference](https://angular.io/cli) page.
+- Anti-aliasing using WebGPU's multisampling technique.
