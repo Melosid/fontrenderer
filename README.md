@@ -25,3 +25,7 @@ OpenType.js is a JavaScript library for parsing and manipulating font files. It 
     - Third pipeline draws the curves directly (no stencil testing since the curves don't overlap) to smoothen the character.
 
 - Anti-aliasing using WebGPU's multisampling technique.
+
+## Localhost
+
+![alt text](image.png)
